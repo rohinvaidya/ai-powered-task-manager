@@ -1,0 +1,2 @@
+# Append to requirements.txt for testing
+aiosqlite==0.20.0
