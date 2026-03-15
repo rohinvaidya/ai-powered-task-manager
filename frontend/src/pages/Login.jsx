@@ -17,6 +17,8 @@ export default function Login() {
     try {
       const res = await login(form)
       const { access_token } = res.data
+      // Store token in localStorage FIRST so the getMe interceptor picks it up
+      localStorage.setItem('token', access_token)
       const me = await getMe()
       signIn(access_token, me.data)
       navigate('/dashboard')
@@ -87,91 +89,16 @@ const styles = {
     borderRadius: 'var(--radius-xl)',
     padding: '40px 36px',
   },
-  logoRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 28,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: 'var(--accent)',
-    boxShadow: '0 0 10px var(--accent)',
-    display: 'inline-block',
-  },
-  logoText: {
-    fontFamily: 'var(--font-head)',
-    fontWeight: 700,
-    fontSize: '1rem',
-    color: 'var(--text)',
-  },
-  title: {
-    fontFamily: 'var(--font-head)',
-    fontWeight: 700,
-    fontSize: '1.8rem',
-    letterSpacing: '-0.03em',
-    color: 'var(--text)',
-    marginBottom: 6,
-  },
-  sub: {
-    fontSize: '0.875rem',
-    color: 'var(--text2)',
-    marginBottom: 28,
-    fontWeight: 300,
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-  },
-  label: {
-    fontSize: '0.78rem',
-    color: 'var(--text2)',
-    fontFamily: 'var(--font-mono)',
-    letterSpacing: '0.04em',
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  input: {
-    background: 'var(--bg2)',
-    border: '1px solid var(--border2)',
-    borderRadius: 8,
-    padding: '11px 14px',
-    fontSize: '0.9rem',
-    color: 'var(--text)',
-    outline: 'none',
-    transition: 'border-color 0.15s',
-    width: '100%',
-  },
-  error: {
-    fontSize: '0.82rem',
-    color: 'var(--accent3)',
-    marginTop: 8,
-  },
-  btn: {
-    marginTop: 20,
-    background: 'var(--accent)',
-    color: '#0a0a0f',
-    fontFamily: 'var(--font-head)',
-    fontWeight: 700,
-    fontSize: '0.95rem',
-    padding: '13px',
-    borderRadius: 8,
-    border: 'none',
-    cursor: 'pointer',
-    letterSpacing: '-0.01em',
-    transition: 'opacity 0.15s',
-  },
-  switchText: {
-    textAlign: 'center',
-    marginTop: 20,
-    fontSize: '0.83rem',
-    color: 'var(--text3)',
-  },
-  link: {
-    color: 'var(--accent)',
-    fontWeight: 500,
-  },
+  logoRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 28 },
+  dot: { width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 10px var(--accent)', display: 'inline-block' },
+  logoText: { fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '1rem', color: 'var(--text)' },
+  title: { fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '1.8rem', letterSpacing: '-0.03em', color: 'var(--text)', marginBottom: 6 },
+  sub: { fontSize: '0.875rem', color: 'var(--text2)', marginBottom: 28, fontWeight: 300 },
+  form: { display: 'flex', flexDirection: 'column', gap: 6 },
+  label: { fontSize: '0.78rem', color: 'var(--text2)', fontFamily: 'var(--font-mono)', letterSpacing: '0.04em', marginTop: 10, marginBottom: 4 },
+  input: { background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 8, padding: '11px 14px', fontSize: '0.9rem', color: 'var(--text)', outline: 'none', transition: 'border-color 0.15s', width: '100%' },
+  error: { fontSize: '0.82rem', color: 'var(--accent3)', marginTop: 8 },
+  btn: { marginTop: 20, background: 'var(--accent)', color: '#0a0a0f', fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '0.95rem', padding: '13px', borderRadius: 8, border: 'none', cursor: 'pointer', letterSpacing: '-0.01em', transition: 'opacity 0.15s' },
+  switchText: { textAlign: 'center', marginTop: 20, fontSize: '0.83rem', color: 'var(--text3)' },
+  link: { color: 'var(--accent)', fontWeight: 500 },
 }

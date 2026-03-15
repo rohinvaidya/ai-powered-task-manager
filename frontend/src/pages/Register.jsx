@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { register, login, getMe } from '../api/client'
+import { register, login } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 
 export default function Register() {
@@ -15,10 +15,13 @@ export default function Register() {
     setError('')
     setLoading(true)
     try {
-      await register(form)
-      const res = await login({ email: form.email, password: form.password })
-      const me = await getMe()
-      signIn(res.data.access_token, me.data)
+      // Register returns the user object directly
+      const userRes = await register(form)
+      // Login to get the token
+      const loginRes = await login({ email: form.email, password: form.password })
+      const { access_token } = loginRes.data
+      // signIn stores token AND user — no need for a separate getMe call
+      signIn(access_token, userRes.data)
       navigate('/dashboard')
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed')
