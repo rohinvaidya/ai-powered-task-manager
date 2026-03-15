@@ -18,13 +18,24 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     DATABASE_URL: str = ""
-    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # Anthropic
     ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+
+    # Email (optional — leave blank to disable)
+    MAIL_USERNAME: str = ""
+    MAIL_PASSWORD: str = ""
+    MAIL_FROM: str = "noreply@taskmanager.dev"
+    MAIL_SERVER: str = "smtp.gmail.com"
+    MAIL_PORT: int = 587
+    MAIL_STARTTLS: bool = True
+    MAIL_SSL_TLS: bool = False
 
     @field_validator("DATABASE_URL")
     @classmethod

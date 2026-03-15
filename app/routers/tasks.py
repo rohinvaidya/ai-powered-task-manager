@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,8 @@ from app.models.project import Project
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/tasks", tags=["tasks"])
 
@@ -28,6 +32,11 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     await cache_delete_pattern(f"tasks:{project_id}:*")
+
+    # Notify assignee if set
+    if task.assignee_id:
+        _queue_notification(task.id, task.title, "assigned", task.assignee_id)
+
     return task
 
 
@@ -81,11 +90,25 @@ async def update_task(
 ):
     await _assert_project_access(db, project_id, current_user.id)
     task = await _get_task_or_404(db, task_id, project_id)
-    for field, value in payload.model_dump(exclude_none=True).items():
+
+    old_status = task.status
+    update_data = payload.model_dump(exclude_none=True)
+
+    for field, value in update_data.items():
         setattr(task, field, value)
+
     await db.commit()
     await db.refresh(task)
     await cache_delete_pattern(f"tasks:{project_id}:*")
+
+    # Fire status-change notification if status changed
+    new_status = task.status
+    if "status" in update_data and old_status != new_status:
+        _queue_notification(
+            task.id, task.title, "status_changed", task.assignee_id,
+            extra={"old_status": old_status.value, "new_status": new_status.value},
+        )
+
     return task
 
 
@@ -101,6 +124,27 @@ async def delete_task(
     await db.delete(task)
     await db.commit()
     await cache_delete_pattern(f"tasks:{project_id}:*")
+
+
+def _queue_notification(
+    task_id: str,
+    task_title: str,
+    event: str,
+    assignee_id: str | None = None,
+    extra: dict | None = None,
+) -> None:
+    """Queue a Celery notification task, failing silently if Celery is unavailable."""
+    try:
+        from app.workers.notification_worker import send_task_notification
+        send_task_notification.delay(
+            task_id=task_id,
+            task_title=task_title,
+            event=event,
+            assignee_id=assignee_id,
+            extra=extra or {},
+        )
+    except Exception as e:
+        logger.warning(f"Could not queue notification for task {task_id}: {e}")
 
 
 async def _assert_project_access(db: AsyncSession, project_id: str, owner_id: str) -> Project:
