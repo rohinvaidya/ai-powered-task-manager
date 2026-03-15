@@ -32,23 +32,35 @@ export default function Dashboard() {
   const [selectedProject, setSelectedProject] = useState(null)
   const [tasks, setTasks] = useState([])
   const [analytics, setAnalytics] = useState(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState(null)
   const [newProjectName, setNewProjectName] = useState('')
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskPriority, setNewTaskPriority] = useState('medium')
+  const [newTaskDueDate, setNewTaskDueDate] = useState('')
   const [loadingAI, setLoadingAI] = useState(false)
-  const [activeTab, setActiveTab] = useState('tasks') // tasks | ai | analytics
+  const [activeTab, setActiveTab] = useState('tasks')
   const [showNewProject, setShowNewProject] = useState(false)
   const [showNewTask, setShowNewTask] = useState(false)
 
-  // Load projects + analytics
+  // Shared analytics refresh — call after every mutation
+  const refreshAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true)
+    try {
+      const r = await getMyAnalytics()
+      setAnalytics(r.data)
+    } catch (_) {}
+    finally { setAnalyticsLoading(false) }
+  }, [])
+
+  // Initial load
   useEffect(() => {
     getProjects().then((r) => {
       setProjects(r.data)
       if (r.data.length > 0) setSelectedProject(r.data[0])
     })
-    getMyAnalytics().then((r) => setAnalytics(r.data)).catch(() => {})
-  }, [])
+    refreshAnalytics()
+  }, [refreshAnalytics])
 
   // Load tasks when project changes
   useEffect(() => {
@@ -56,6 +68,11 @@ export default function Dashboard() {
     getTasks(selectedProject.id).then((r) => setTasks(r.data))
     setSuggestions(null)
   }, [selectedProject])
+
+  // Refresh analytics whenever tasks array changes
+  useEffect(() => {
+    refreshAnalytics()
+  }, [tasks, refreshAnalytics])
 
   const handleCreateProject = async (e) => {
     e.preventDefault()
@@ -65,6 +82,7 @@ export default function Dashboard() {
     setSelectedProject(res.data)
     setNewProjectName('')
     setShowNewProject(false)
+    refreshAnalytics()
   }
 
   const handleDeleteProject = async (id) => {
@@ -73,19 +91,28 @@ export default function Dashboard() {
     setProjects(updated)
     setSelectedProject(updated[0] || null)
     setTasks([])
+    refreshAnalytics()
   }
 
   const handleCreateTask = async (e) => {
     e.preventDefault()
     if (!newTaskTitle.trim() || !selectedProject) return
-    const res = await createTask(selectedProject.id, { title: newTaskTitle, priority: newTaskPriority })
+    const payload = { title: newTaskTitle, priority: newTaskPriority }
+    if (newTaskDueDate) payload.due_date = new Date(newTaskDueDate).toISOString()
+    const res = await createTask(selectedProject.id, payload)
     setTasks((t) => [...t, res.data])
     setNewTaskTitle('')
+    setNewTaskDueDate('')
     setShowNewTask(false)
   }
 
   const handleStatusChange = async (task, status) => {
     const res = await updateTask(selectedProject.id, task.id, { status })
+    setTasks((t) => t.map((x) => (x.id === task.id ? res.data : x)))
+  }
+
+  const handleUpdate = async (task, fields) => {
+    const res = await updateTask(selectedProject.id, task.id, fields)
     setTasks((t) => t.map((x) => (x.id === task.id ? res.data : x)))
   }
 
@@ -251,8 +278,15 @@ export default function Dashboard() {
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </select>
+                    <input
+                      type="date"
+                      style={styles.dateInput}
+                      value={newTaskDueDate}
+                      onChange={(e) => setNewTaskDueDate(e.target.value)}
+                      title="Due date (optional)"
+                    />
                     <button style={styles.primaryBtn} type="submit">Create</button>
-                    <button style={styles.cancelBtn} type="button" onClick={() => setShowNewTask(false)}>Cancel</button>
+                    <button style={styles.cancelBtn} type="button" onClick={() => { setShowNewTask(false); setNewTaskDueDate('') }}>Cancel</button>
                   </form>
                 )}
 
@@ -272,6 +306,7 @@ export default function Dashboard() {
                             task={task}
                             onStatusChange={handleStatusChange}
                             onDelete={handleDeleteTask}
+                            onUpdate={handleUpdate}
                           />
                         ))}
                         {statusTasks.length === 0 && (
@@ -349,8 +384,19 @@ export default function Dashboard() {
             {/* ── Analytics Tab ── */}
             {activeTab === 'analytics' && (
               <div style={styles.tabContent}>
+                <div style={styles.analyticsHeader}>
+                  <span style={styles.analyticsTitle}>Overview</span>
+                  <button
+                    style={{ ...styles.refreshBtn, opacity: analyticsLoading ? 0.5 : 1 }}
+                    onClick={refreshAnalytics}
+                    disabled={analyticsLoading}
+                  >
+                    {analyticsLoading ? '↻ Refreshing…' : '↻ Refresh'}
+                  </button>
+                </div>
+
                 {!analytics ? (
-                  <div style={styles.aiEmpty}><p>Loading analytics…</p></div>
+                  <div style={styles.aiEmpty}><p style={{ color: 'var(--text3)' }}>Loading analytics…</p></div>
                 ) : (
                   <div className="fade-up">
                     <div style={styles.analyticsGrid}>
@@ -363,40 +409,46 @@ export default function Dashboard() {
                     <div style={styles.analyticsRow}>
                       <div style={styles.analyticsCard}>
                         <p style={styles.analyticsCardTitle}>By Status</p>
-                        {Object.entries(analytics.by_status || {}).map(([s, n]) => (
-                          <div key={s} style={styles.barRow}>
-                            <span style={{ ...styles.barLabel, color: STATUS_COLORS[s]?.text || 'var(--text2)' }}>
-                              {STATUS_COLORS[s]?.label || s}
-                            </span>
-                            <div style={styles.barTrack}>
-                              <div style={{
-                                ...styles.barFill,
-                                width: `${analytics.total_tasks ? (n / analytics.total_tasks) * 100 : 0}%`,
-                                background: STATUS_COLORS[s]?.text || 'var(--accent)',
-                              }} />
+                        {Object.keys(STATUS_COLORS).map((s) => {
+                          const n = analytics.by_status?.[s] || 0
+                          return (
+                            <div key={s} style={styles.barRow}>
+                              <span style={{ ...styles.barLabel, color: STATUS_COLORS[s].text }}>
+                                {STATUS_COLORS[s].label}
+                              </span>
+                              <div style={styles.barTrack}>
+                                <div style={{
+                                  ...styles.barFill,
+                                  width: `${analytics.total_tasks ? (n / analytics.total_tasks) * 100 : 0}%`,
+                                  background: STATUS_COLORS[s].text,
+                                }} />
+                              </div>
+                              <span style={styles.barCount}>{n}</span>
                             </div>
-                            <span style={styles.barCount}>{n}</span>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
 
                       <div style={styles.analyticsCard}>
                         <p style={styles.analyticsCardTitle}>By Priority</p>
-                        {Object.entries(analytics.by_priority || {}).map(([p, n]) => (
-                          <div key={p} style={styles.barRow}>
-                            <span style={{ ...styles.barLabel, color: PRIORITY_COLORS[p] }}>
-                              {PRIORITY_DOT[p]} {p}
-                            </span>
-                            <div style={styles.barTrack}>
-                              <div style={{
-                                ...styles.barFill,
-                                width: `${analytics.total_tasks ? (n / analytics.total_tasks) * 100 : 0}%`,
-                                background: PRIORITY_COLORS[p],
-                              }} />
+                        {Object.keys(PRIORITY_COLORS).map((p) => {
+                          const n = analytics.by_priority?.[p] || 0
+                          return (
+                            <div key={p} style={styles.barRow}>
+                              <span style={{ ...styles.barLabel, color: PRIORITY_COLORS[p] }}>
+                                {PRIORITY_DOT[p]} {p}
+                              </span>
+                              <div style={styles.barTrack}>
+                                <div style={{
+                                  ...styles.barFill,
+                                  width: `${analytics.total_tasks ? (n / analytics.total_tasks) * 100 : 0}%`,
+                                  background: PRIORITY_COLORS[p],
+                                }} />
+                              </div>
+                              <span style={styles.barCount}>{n}</span>
                             </div>
-                            <span style={styles.barCount}>{n}</span>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
@@ -410,20 +462,65 @@ export default function Dashboard() {
   )
 }
 
-function TaskCard({ task, onStatusChange, onDelete }) {
-  const [open, setOpen] = useState(false)
+function TaskCard({ task, onStatusChange, onDelete, onUpdate }) {
+  const [editingDue, setEditingDue] = useState(false)
+  const [dueValue, setDueValue] = useState(
+    task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''
+  )
+
+  const now = new Date()
+  const dueDate = task.due_date ? new Date(task.due_date) : null
+  const isOverdue = dueDate && dueDate < now && task.status !== 'done' && task.status !== 'cancelled'
+  const isDueSoon = dueDate && !isOverdue && (dueDate - now) < 86400000 * 2
+
+  const handleDueChange = async (val) => {
+    setDueValue(val)
+    setEditingDue(false)
+    const due_date = val ? new Date(val).toISOString() : null
+    await onUpdate(task, { due_date })
+  }
+
   return (
-    <div style={styles.taskCard} className="fade-up">
+    <div style={{
+      ...styles.taskCard,
+      ...(isOverdue ? { borderColor: 'rgba(240,96,96,0.4)' } : {}),
+      ...(isDueSoon ? { borderColor: 'rgba(239,159,39,0.4)' } : {}),
+    }} className="fade-up">
       <div style={styles.taskCardTop}>
         <span style={{ ...styles.priorityTag, color: PRIORITY_COLORS[task.priority] }}>
           {PRIORITY_DOT[task.priority]} {task.priority}
         </span>
         <button style={styles.deleteTaskBtn} onClick={() => onDelete(task)}>✕</button>
       </div>
+
       <p style={styles.taskTitle}>{task.title}</p>
-      {task.due_date && (
-        <p style={styles.taskDue}>Due {new Date(task.due_date).toLocaleDateString()}</p>
-      )}
+
+      <div style={styles.dueDateRow}>
+        {editingDue ? (
+          <input
+            type="date"
+            autoFocus
+            style={styles.dueDateInput}
+            value={dueValue}
+            onChange={(e) => handleDueChange(e.target.value)}
+            onBlur={() => setEditingDue(false)}
+          />
+        ) : (
+          <button
+            style={{
+              ...styles.dueDateBtn,
+              ...(isOverdue ? { color: '#f06060' } : {}),
+              ...(isDueSoon ? { color: '#ef9f27' } : {}),
+            }}
+            onClick={() => setEditingDue(true)}
+            title="Click to set due date"
+          >
+            {isOverdue && '⚠ '}
+            {dueDate ? `Due ${dueDate.toLocaleDateString()}` : '+ Set due date'}
+          </button>
+        )}
+      </div>
+
       <div style={styles.taskCardFooter}>
         <select
           style={styles.statusSelect}
@@ -454,119 +551,45 @@ function StatCard({ label, value, accent, warn }) {
 
 const styles = {
   layout: { display: 'flex', height: '100vh', overflow: 'hidden' },
-
-  // Sidebar
-  sidebar: {
-    width: 240,
-    flexShrink: 0,
-    background: 'var(--bg2)',
-    borderRight: '1px solid var(--border)',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    padding: '24px 0',
-    overflow: 'hidden',
-  },
+  sidebar: { width: 240, flexShrink: 0, background: 'var(--bg2)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '24px 0', overflow: 'hidden' },
   sidebarTop: { display: 'flex', flexDirection: 'column', gap: 4, padding: '0 16px', overflow: 'auto' },
   logoRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 },
   dot: { width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 8px var(--accent)', display: 'inline-block' },
   logoText: { fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' },
   userRow: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, padding: '10px 0', borderBottom: '1px solid var(--border)' },
-  avatar: {
-    width: 30, height: 30, borderRadius: '50%',
-    background: 'rgba(200,240,78,0.15)',
-    color: 'var(--accent)',
-    fontFamily: 'var(--font-head)',
-    fontWeight: 700,
-    fontSize: '0.8rem',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0,
-  },
+  avatar: { width: 30, height: 30, borderRadius: '50%', background: 'rgba(200,240,78,0.15)', color: 'var(--accent)', fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   userName: { fontSize: '0.82rem', fontWeight: 500, color: 'var(--text)' },
   userEmail: { fontSize: '0.72rem', color: 'var(--text3)', marginTop: 1 },
   sectionLabel: { fontSize: '0.68rem', color: 'var(--text3)', letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', margin: '8px 0 6px' },
   projectList: { display: 'flex', flexDirection: 'column', gap: 2 },
-  projectItem: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
-    transition: 'background 0.15s',
-  },
+  projectItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 8, cursor: 'pointer', transition: 'background 0.15s' },
   projectItemActive: { background: 'var(--surface2)' },
   projectName: { fontSize: '0.85rem', color: 'var(--text)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  deleteBtn: { fontSize: '0.7rem', color: 'var(--text3)', padding: 2, flexShrink: 0, opacity: 0, transition: 'opacity 0.15s' },
+  deleteBtn: { fontSize: '0.7rem', color: 'var(--text3)', padding: 2, flexShrink: 0, opacity: 0.4 },
   inlineForm: { display: 'flex', gap: 6, marginTop: 8 },
   inlineInput: { flex: 1, background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 6, padding: '7px 10px', fontSize: '0.82rem', color: 'var(--text)', outline: 'none' },
   inlineSubmit: { background: 'var(--accent)', color: '#0a0a0f', fontWeight: 700, fontSize: '0.78rem', padding: '7px 12px', borderRadius: 6, border: 'none', cursor: 'pointer' },
   newProjectBtn: { marginTop: 8, background: 'none', border: '1px dashed var(--border2)', borderRadius: 8, padding: '8px 10px', fontSize: '0.82rem', color: 'var(--text3)', cursor: 'pointer', width: '100%', textAlign: 'left' },
   signOutBtn: { margin: '0 16px', background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '9px', fontSize: '0.82rem', color: 'var(--text3)', cursor: 'pointer', width: 'calc(100% - 32px)' },
-
-  // Main
   main: { flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
-  mainHeader: {
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-    padding: '32px 36px 20px',
-    borderBottom: '1px solid var(--border)',
-    flexShrink: 0,
-  },
+  mainHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '32px 36px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 },
   projectTitle: { fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '1.6rem', letterSpacing: '-0.03em', color: 'var(--text)' },
   taskCount: { fontSize: '0.8rem', color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--font-mono)' },
   headerActions: { display: 'flex', gap: 10, alignItems: 'center' },
-  aiBtn: {
-    background: 'rgba(124,106,247,0.12)',
-    color: '#a89af7',
-    border: '1px solid rgba(124,106,247,0.3)',
-    borderRadius: 8,
-    padding: '9px 16px',
-    fontSize: '0.85rem',
-    fontFamily: 'var(--font-head)',
-    fontWeight: 600,
-    cursor: 'pointer',
-    letterSpacing: '-0.01em',
-  },
-  primaryBtn: {
-    background: 'var(--accent)',
-    color: '#0a0a0f',
-    border: 'none',
-    borderRadius: 8,
-    padding: '9px 18px',
-    fontSize: '0.85rem',
-    fontFamily: 'var(--font-head)',
-    fontWeight: 700,
-    cursor: 'pointer',
-    letterSpacing: '-0.01em',
-  },
-  cancelBtn: {
-    background: 'none',
-    color: 'var(--text3)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    padding: '9px 14px',
-    fontSize: '0.85rem',
-    cursor: 'pointer',
-  },
-
-  // Tabs
+  aiBtn: { background: 'rgba(124,106,247,0.12)', color: '#a89af7', border: '1px solid rgba(124,106,247,0.3)', borderRadius: 8, padding: '9px 16px', fontSize: '0.85rem', fontFamily: 'var(--font-head)', fontWeight: 600, cursor: 'pointer', letterSpacing: '-0.01em' },
+  primaryBtn: { background: 'var(--accent)', color: '#0a0a0f', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: '0.85rem', fontFamily: 'var(--font-head)', fontWeight: 700, cursor: 'pointer', letterSpacing: '-0.01em' },
+  cancelBtn: { background: 'none', color: 'var(--text3)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 14px', fontSize: '0.85rem', cursor: 'pointer' },
   tabs: { display: 'flex', gap: 4, padding: '16px 36px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 },
-  tab: {
-    padding: '9px 16px',
-    fontSize: '0.83rem',
-    color: 'var(--text3)',
-    background: 'none',
-    border: 'none',
-    borderBottom: '2px solid transparent',
-    cursor: 'pointer',
-    fontFamily: 'var(--font-body)',
-    fontWeight: 400,
-    marginBottom: -1,
-    transition: 'color 0.15s',
-  },
+  tab: { padding: '9px 16px', fontSize: '0.83rem', color: 'var(--text3)', background: 'none', border: 'none', borderBottom: '2px solid transparent', cursor: 'pointer', fontFamily: 'var(--font-body)', fontWeight: 400, marginBottom: -1, transition: 'color 0.15s' },
   tabActive: { color: 'var(--text)', borderBottomColor: 'var(--accent)' },
   tabContent: { flex: 1, padding: '28px 36px', overflow: 'auto' },
-
-  // Kanban
+  analyticsHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  analyticsTitle: { fontFamily: 'var(--font-head)', fontWeight: 600, fontSize: '1rem', color: 'var(--text)', letterSpacing: '-0.02em' },
+  refreshBtn: { background: 'none', border: '1px solid var(--border2)', borderRadius: 6, padding: '6px 12px', fontSize: '0.78rem', color: 'var(--text2)', fontFamily: 'var(--font-mono)', cursor: 'pointer', transition: 'opacity 0.15s' },
   newTaskForm: { display: 'flex', gap: 10, marginBottom: 24, alignItems: 'center' },
   taskInput: { flex: 1, background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: '0.9rem', color: 'var(--text)', outline: 'none' },
   prioritySelect: { background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', color: 'var(--text)', outline: 'none' },
+  dateInput: { background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 10px', fontSize: '0.82rem', color: 'var(--text2)', outline: 'none', colorScheme: 'dark' },
   kanban: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 },
   column: { display: 'flex', flexDirection: 'column', gap: 8 },
   columnHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
@@ -574,37 +597,16 @@ const styles = {
   columnCount: { fontSize: '0.72rem', color: 'var(--text3)', fontFamily: 'var(--font-mono)' },
   columnTasks: { display: 'flex', flexDirection: 'column', gap: 8 },
   emptyColumn: { textAlign: 'center', color: 'var(--text3)', fontSize: '0.8rem', padding: '16px 0' },
-
-  // Task card
-  taskCard: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 10,
-    padding: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8,
-    transition: 'border-color 0.15s',
-  },
+  taskCard: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px', display: 'flex', flexDirection: 'column', gap: 8, transition: 'border-color 0.15s' },
   taskCardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   priorityTag: { fontSize: '0.72rem', fontFamily: 'var(--font-mono)', fontWeight: 500, letterSpacing: '0.03em' },
   deleteTaskBtn: { fontSize: '0.7rem', color: 'var(--text3)', padding: 2, opacity: 0.4 },
   taskTitle: { fontSize: '0.875rem', color: 'var(--text)', fontWeight: 400, lineHeight: 1.4 },
-  taskDue: { fontSize: '0.72rem', color: 'var(--text3)', fontFamily: 'var(--font-mono)' },
+  dueDateRow: { minHeight: 20 },
+  dueDateBtn: { background: 'none', border: 'none', padding: 0, fontSize: '0.72rem', color: 'var(--text3)', fontFamily: 'var(--font-mono)', cursor: 'pointer', textAlign: 'left', transition: 'color 0.15s' },
+  dueDateInput: { width: '100%', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', color: 'var(--text)', outline: 'none', colorScheme: 'dark' },
   taskCardFooter: { marginTop: 4 },
-  statusSelect: {
-    width: '100%',
-    background: 'var(--bg2)',
-    border: '1px solid var(--border)',
-    borderRadius: 6,
-    padding: '5px 8px',
-    fontSize: '0.75rem',
-    color: 'var(--text2)',
-    outline: 'none',
-    cursor: 'pointer',
-  },
-
-  // AI panel
+  statusSelect: { width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 8px', fontSize: '0.75rem', color: 'var(--text2)', outline: 'none', cursor: 'pointer' },
   aiEmpty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '80px 0', textAlign: 'center' },
   aiEmptyIcon: { fontSize: '2rem', color: 'var(--accent2)' },
   aiEmptyTitle: { fontFamily: 'var(--font-head)', fontWeight: 600, fontSize: '1.1rem', color: 'var(--text)' },
@@ -617,17 +619,10 @@ const styles = {
   aiGroupLabel: { fontSize: '0.72rem', color: 'var(--accent)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 },
   aiGroupTask: { fontSize: '0.82rem', color: 'var(--text2)', padding: '5px 0', borderBottom: '1px solid var(--border)', fontWeight: 300 },
   suggestionList: { display: 'flex', flexDirection: 'column', gap: 8 },
-  suggestionRow: {
-    display: 'grid', gridTemplateColumns: '1fr auto 1fr',
-    alignItems: 'center', gap: 16,
-    background: 'var(--surface)', border: '1px solid var(--border)',
-    borderRadius: 8, padding: '12px 16px',
-  },
+  suggestionRow: { display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px' },
   suggestionTitle: { fontSize: '0.875rem', color: 'var(--text)', fontWeight: 400 },
   suggestionPriority: { fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600, textAlign: 'center' },
   suggestionReason: { fontSize: '0.78rem', color: 'var(--text3)', textAlign: 'right' },
-
-  // Analytics
   analyticsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 },
   statCard: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px', textAlign: 'center' },
   statValue: { fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '1.8rem', letterSpacing: '-0.03em', color: 'var(--text)' },
@@ -640,8 +635,6 @@ const styles = {
   barTrack: { flex: 1, height: 4, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 4, transition: 'width 0.5s ease' },
   barCount: { fontSize: '0.72rem', color: 'var(--text3)', fontFamily: 'var(--font-mono)', width: 20, textAlign: 'right' },
-
-  // Empty state
   empty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyTitle: { fontFamily: 'var(--font-head)', fontWeight: 600, fontSize: '1.2rem', color: 'var(--text)' },
   emptyText: { fontSize: '0.875rem', color: 'var(--text3)' },
