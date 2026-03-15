@@ -11,11 +11,10 @@ from app.routers import auth, projects, tasks, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create all tables (dev convenience — use Alembic in prod)
+    print(f"\n>>> Connecting to: {settings.DATABASE_URL}\n")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    # Shutdown: dispose engine
     await engine.dispose()
 
 
@@ -35,7 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
