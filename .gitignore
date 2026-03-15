@@ -12,3 +12,4 @@ venv/
 pgdata/
 docker/
 pg_hba.conf
+node_modules/
