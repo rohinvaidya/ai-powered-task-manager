@@ -31,10 +31,11 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(
-        Enum(TaskStatus), default=TaskStatus.TODO, nullable=False
+        # native_enum=False uses VARCHAR — required for SQLite compatibility in tests
+        Enum(TaskStatus, native_enum=False), default=TaskStatus.TODO, nullable=False
     )
     priority: Mapped[TaskPriority] = mapped_column(
-        Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False
+        Enum(TaskPriority, native_enum=False), default=TaskPriority.MEDIUM, nullable=False
     )
     order: Mapped[int] = mapped_column(Integer, default=0)
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

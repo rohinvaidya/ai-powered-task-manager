@@ -1,0 +1,15 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportArgumentType": "none",
+    "reportGeneralTypeIssues": "warning",
+    "reportMissingTypeStubs": "none",
+    "reportUnknownMemberType": "none"
+  },
+  "python.analysis.extraPaths": ["${workspaceFolder}"],
+  "editor.formatOnSave": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  }
+}

@@ -1,0 +1,98 @@
+# Celery Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskmanager-worker
+  namespace: taskmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: taskmanager-worker
+  template:
+    metadata:
+      labels:
+        app: taskmanager-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/yourname/taskmanager/taskmanager:latest
+          command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=info"]
+          envFrom:
+            - configMapRef:
+                name: taskmanager-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: REDIS_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: SECRET_KEY
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+# Celery Beat Scheduler
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskmanager-beat
+  namespace: taskmanager
+spec:
+  replicas: 1  # Always 1 — multiple beats cause duplicate jobs
+  selector:
+    matchLabels:
+      app: taskmanager-beat
+  template:
+    metadata:
+      labels:
+        app: taskmanager-beat
+    spec:
+      containers:
+        - name: beat
+          image: ghcr.io/yourname/taskmanager/taskmanager:latest
+          command: ["celery", "-A", "app.core.celery_app", "beat", "--loglevel=info"]
+          envFrom:
+            - configMapRef:
+                name: taskmanager-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: REDIS_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: taskmanager-secrets
+                  key: SECRET_KEY
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
